@@ -1,8 +1,10 @@
 // TxPeek Mini App
-// API_BASE is injected by the HTML template (empty string = same origin)
+// Works both as Telegram Mini App (with backend) and standalone on GitHub Pages (demo mode)
 
 const tg = window.Telegram?.WebApp;
-const apiBase = (typeof API_BASE !== "undefined" && API_BASE) ? API_BASE : "";
+
+// API base — set to your backend URL when deployed, empty = demo mode
+const API_BASE = "";
 
 let userId = null;
 let isDemoMode = true;
@@ -25,7 +27,8 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     }
 
-    if (userId) {
+    // Try loading from real API, fall back to demo
+    if (API_BASE && userId) {
         isDemoMode = false;
         loadProfile(userId);
         loadLeaderboard();
@@ -43,9 +46,11 @@ document.addEventListener("DOMContentLoaded", () => {
 // --- Demo mode ---
 
 function showDemoData() {
+    // Profile
     document.getElementById("xp-fill").style.width = "35%";
     document.getElementById("xp-label").textContent = "35 / 100 XP";
 
+    // Demo leaderboard
     const leaderboard = [
         { rank: 1, name: "CryptoSherlock", level: "Детектив", xp: 2450 },
         { rank: 2, name: "BlockHunter", level: "Аналитик", xp: 1800 },
@@ -69,6 +74,7 @@ function showDemoData() {
         )
         .join("");
 
+    // Demo stats
     document.getElementById("global-users").textContent = "—";
     document.getElementById("global-checks").textContent = "—";
     document.getElementById("global-risky").textContent = "—";
@@ -78,7 +84,7 @@ function showDemoData() {
 
 async function loadProfile(telegramId) {
     try {
-        const resp = await fetch(`${apiBase}/webapp/api/profile/${telegramId}`);
+        const resp = await fetch(`${API_BASE}/webapp/api/profile/${telegramId}`);
         const data = await resp.json();
         if (data.error) return;
 
@@ -99,13 +105,12 @@ async function loadProfile(telegramId) {
         renderRecentChecks(data.recent_checks);
     } catch (e) {
         console.log("API unavailable, running in demo mode");
-        showDemoData();
     }
 }
 
 async function loadLeaderboard() {
     try {
-        const resp = await fetch(`${apiBase}/webapp/api/leaderboard`);
+        const resp = await fetch(`${API_BASE}/webapp/api/leaderboard`);
         const data = await resp.json();
 
         const container = document.getElementById("leaderboard");
@@ -134,7 +139,7 @@ async function loadLeaderboard() {
 
 async function loadStats() {
     try {
-        const resp = await fetch(`${apiBase}/webapp/api/stats`);
+        const resp = await fetch(`${API_BASE}/webapp/api/stats`);
         const data = await resp.json();
 
         document.getElementById("global-users").textContent = data.total_users;
@@ -203,17 +208,19 @@ function checkAddress() {
         return;
     }
 
+    // If in Telegram — send to bot for full analysis
     if (tg) {
         tg.sendData(JSON.stringify({ action: "check", address, chain }));
         resultDiv.className = "risk-low";
         resultDiv.innerHTML = `
             <strong>Отправлено боту</strong><br>
             Сеть: ${chain}<br>
-            Полный отчёт придёт в чат.
+            Полный отчёт придёт в чат. Жди пару секунд...
         `;
         return;
     }
 
+    // Standalone demo — show detected chain
     const shortAddr = address.length > 16
         ? `${address.slice(0, 8)}...${address.slice(-6)}`
         : address;
@@ -223,6 +230,6 @@ function checkAddress() {
         <strong>Адрес распознан</strong><br>
         <span style="color:var(--text-muted)">Сеть:</span> ${chain}<br>
         <span style="color:var(--text-muted)">Адрес:</span> <code>${shortAddr}</code><br><br>
-        Для полного анализа откройте через Telegram-бота
+        Для полного анализа откройте приложение через <a href="https://t.me/txpeek_bot" style="color:var(--accent)">@txpeek_bot</a>
     `;
 }

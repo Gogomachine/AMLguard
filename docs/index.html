@@ -5,15 +5,17 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>TxPeek — AML Detective</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    <link rel="stylesheet" href="/static/css/app.css">
+    <link rel="stylesheet" href="css/app.css">
 </head>
 <body>
     <div id="app">
+        <!-- Header -->
         <header class="header">
             <div class="logo">TxPeek</div>
             <div class="subtitle">AML Detective Agent</div>
         </header>
 
+        <!-- Profile card -->
         <section id="profile-card" class="card">
             <div class="profile-header">
                 <div class="avatar" id="avatar">?</div>
@@ -42,6 +44,7 @@
             </div>
         </section>
 
+        <!-- Quick check -->
         <section class="card">
             <h3>Проверить адрес</h3>
             <div class="input-group">
@@ -51,6 +54,7 @@
             <div id="check-result" class="hidden"></div>
         </section>
 
+        <!-- Supported chains -->
         <section class="card">
             <h3>Поддерживаемые сети</h3>
             <div class="chains-grid">
@@ -63,6 +67,7 @@
             </div>
         </section>
 
+        <!-- Recent checks -->
         <section class="card">
             <h3>Последние проверки</h3>
             <div id="recent-checks">
@@ -70,6 +75,7 @@
             </div>
         </section>
 
+        <!-- Leaderboard -->
         <section class="card">
             <h3>Топ детективов</h3>
             <div id="leaderboard">
@@ -77,6 +83,7 @@
             </div>
         </section>
 
+        <!-- Global stats -->
         <section class="card stats-global">
             <div class="stat">
                 <span class="stat-value" id="global-users">—</span>
@@ -92,12 +99,12 @@
             </div>
         </section>
 
+        <!-- Footer -->
         <footer class="footer">
             <p>Powered by Claude AI</p>
         </footer>
     </div>
 
-    <script>const API_BASE = "";</script>
-    <script src="/static/js/app.js"></script>
+    <script src="js/app.js"></script>
 </body>
 </html>
