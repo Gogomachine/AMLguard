@@ -19,10 +19,10 @@ from telegram.ext import (
 
 from bot.database.db import async_session
 from bot.models.address_check import AddressCheck
+from bot.models.user import User
 from bot.services.chain_analyzer import analyze_address, detect_chain
 from bot.services.risk_scorer import compute_risk_score
 from bot.services.claude_agent import analyze_address_with_ai
-from bot.services.gamification import get_or_create_user, award_check_xp
 
 logger = logging.getLogger(__name__)
 
@@ -110,14 +110,22 @@ async def _do_check(update: Update, address: str, chain: str | None) -> None:
         # 3. Build report (no AI)
         summary = _build_summary(info, score, level, reasons)
 
-        # 4. Save to DB and process gamification
+        # 4. Save to DB
         async with async_session() as session:
-            db_user = await get_or_create_user(
-                session,
-                telegram_id=user.id,
-                username=user.username,
-                first_name=user.first_name,
+            from sqlalchemy import select
+
+            result = await session.execute(
+                select(User).where(User.telegram_id == user.id)
             )
+            db_user = result.scalar_one_or_none()
+            if not db_user:
+                db_user = User(
+                    telegram_id=user.id,
+                    username=user.username,
+                    first_name=user.first_name,
+                )
+                session.add(db_user)
+                await session.flush()
 
             check = AddressCheck(
                 user_id=db_user.id,
@@ -135,19 +143,7 @@ async def _do_check(update: Update, address: str, chain: str | None) -> None:
             session.add(check)
             await session.commit()
 
-            rewards = await award_check_xp(session, db_user, score)
-
-        # 5. Append gamification
-        xp_line = f"\n✨ +{rewards['xp_earned']} XP"
-        if rewards["leveled_up"]:
-            xp_line += f" | 🎉 Новый уровень: {rewards['new_level_name']}!"
-
-        for ach in rewards["achievements"]:
-            xp_line += f"\n🏆 Ачивка: {ach['icon']} {ach['title']} (+{ach['xp']} XP)"
-
-        summary += xp_line
-
-        # 6. "Deep analysis" button — encodes address and chain into callback_data
+        # 5. "Deep analysis" button — encodes address and chain into callback_data
         effective_chain = info.chain
         callback_data = f"deep:{effective_chain}:{address}"
         # Telegram callback_data max 64 bytes — truncate address if needed

@@ -6,7 +6,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKe
 from telegram.ext import CallbackQueryHandler, CommandHandler, ContextTypes
 
 from bot.database.db import async_session
-from bot.services.gamification import get_or_create_user
+from bot.models.user import User
 
 
 WELCOME_MESSAGE = """
@@ -26,7 +26,6 @@ def main_menu_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("🔎 Проверить адрес", callback_data="menu:check")],
         [InlineKeyboardButton("❓ Задать вопрос", callback_data="menu:ask")],
-        [InlineKeyboardButton("👤 Профиль", callback_data="menu:profile")],
     ])
 
 
@@ -35,12 +34,18 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     user = update.effective_user
 
     async with async_session() as session:
-        await get_or_create_user(
-            session,
-            telegram_id=user.id,
-            username=user.username,
-            first_name=user.first_name,
+        from sqlalchemy import select
+
+        result = await session.execute(
+            select(User).where(User.telegram_id == user.id)
         )
+        if not result.scalar_one_or_none():
+            session.add(User(
+                telegram_id=user.id,
+                username=user.username,
+                first_name=user.first_name,
+            ))
+            await session.commit()
 
     # Remove any leftover ReplyKeyboard from previous bots
     await update.message.reply_text("...", reply_markup=ReplyKeyboardRemove())
@@ -76,11 +81,6 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             parse_mode="HTML",
         )
 
-    elif action == "profile":
-        # Trigger profile handler directly
-        from bot.handlers.profile import show_profile
-        await show_profile(query.message, update.effective_user)
-
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /help command."""
@@ -90,7 +90,6 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 /check <code>адрес</code> — проверить крипто-адрес
 /learn — темы про AML
 /learn <code>вопрос</code> — задать свой вопрос (AI)
-/profile — твой профиль
 /menu — главное меню
 
 <b>Поддерживаемые сети:</b>
