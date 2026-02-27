@@ -116,8 +116,10 @@ class EVMAnalyzer(BaseChainAnalyzer):
                 )
                 last_tx_data = last_tx_resp.json()
                 if last_tx_data.get("status") == "1" and last_tx_data.get("result"):
-                    last_ts = int(last_tx_data["result"][0]["timeStamp"])
+                    last_tx = last_tx_data["result"][0]
+                    last_ts = int(last_tx["timeStamp"])
                     info.last_active = datetime.fromtimestamp(last_ts, tz=timezone.utc)
+                    info.last_tx_hash = last_tx.get("hash")
 
                 # Check if contract
                 code_resp = await client.get(

@@ -39,7 +39,13 @@ class BitcoinAnalyzer(BaseChainAnalyzer):
                 data = resp.json()
 
                 if "data" in data and address in data["data"]:
-                    addr_data = data["data"][address]["address"]
+                    dashboard = data["data"][address]
+                    addr_data = dashboard["address"]
+
+                    # Last transaction hash
+                    txs_list = dashboard.get("transactions", [])
+                    if txs_list:
+                        info.last_tx_hash = txs_list[0]
 
                     balance_sat = addr_data.get("balance", 0)
                     info.balance = f"{balance_sat / 1e8:.8f} BTC"

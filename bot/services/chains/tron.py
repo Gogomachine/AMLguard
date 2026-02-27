@@ -61,6 +61,7 @@ class TronAnalyzer(BaseChainAnalyzer):
                     info.tx_count = tx_data.get("meta", {}).get("total", len(txs))
 
                     if txs:
+                        info.last_tx_hash = txs[0].get("txID")
                         last_ts = txs[0].get("block_timestamp", 0)
                         if last_ts:
                             info.last_active = datetime.fromtimestamp(

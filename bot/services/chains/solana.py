@@ -57,6 +57,7 @@ class SolanaAnalyzer(BaseChainAnalyzer):
                     info.tx_count = len(sigs)  # Approximation from recent txs
 
                     # Last active from most recent signature
+                    info.last_tx_hash = sigs[0].get("signature")
                     if sigs[0].get("blockTime"):
                         info.last_active = datetime.fromtimestamp(
                             sigs[0]["blockTime"], tz=timezone.utc

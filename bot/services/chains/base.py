@@ -14,6 +14,7 @@ class AddressInfo:
     labels: list[str] = field(default_factory=list)
     token_transfers: int = 0
     is_contract: bool = False
+    last_tx_hash: str | None = None
     error: str | None = None
 
 
