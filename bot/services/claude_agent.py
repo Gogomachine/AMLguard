@@ -57,6 +57,13 @@ def _format_address_context(info: AddressInfo, score: float, level: str, reasons
     age_str = info.first_seen.strftime("%Y-%m-%d") if info.first_seen else "неизвестен"
     last_active_str = info.last_active.strftime("%Y-%m-%d %H:%M UTC") if info.last_active else "неизвестно"
 
+    name_tag_str = info.name_tag or "нет"
+    counterparties_str = (
+        chr(10).join(f"  • {c}" for c in info.counterparties)
+        if info.counterparties
+        else "нет подозрительных"
+    )
+
     return f"""Результаты проверки адреса:
 
 Адрес: {info.address}
@@ -67,6 +74,10 @@ def _format_address_context(info: AddressInfo, score: float, level: str, reasons
 Последняя активность: {last_active_str}
 Контракт: {'да' if info.is_contract else 'нет'}
 Метки: {', '.join(info.labels) if info.labels else 'нет'}
+Метка с эксплорера (Etherscan name tag): {name_tag_str}
+
+Контрагенты (подозрительные адреса из транзакций):
+{counterparties_str}
 
 Предварительная оценка риска: {score:.0f}/100 ({level})
 Причины:

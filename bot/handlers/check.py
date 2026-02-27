@@ -251,7 +251,23 @@ def _build_summary(info, score: float, level: str, reasons: list[str]) -> str:
     text += f"🔄 Последняя транзакция:\n"
     text += f"⏰ {last_active_str}"
     text += tx_link
+
+    # Name tag from explorer
+    if info.name_tag:
+        text += f"\n\n🏷 Метка: <b>{info.name_tag}</b>"
+
+    # Counterparties
+    if info.counterparties:
+        text += "\n\n🔗 Подозрительные контрагенты:"
+        for cp in info.counterparties[:5]:
+            text += f"\n  • {cp}"
+
     text += f"\n\n⚠️ Риск: {emoji} {risk_label} ({score:.0f}/100)"
+
+    if reasons:
+        text += "\n"
+        for r in reasons[:5]:
+            text += f"\n• {r}"
 
     return text
 

@@ -65,6 +65,29 @@ def compute_risk_score(info: AddressInfo) -> tuple[float, str, list[str]]:
     except (ValueError, IndexError):
         pass
 
+    # --- Name tag from explorer ---
+    if info.name_tag:
+        tag_lower = info.name_tag.lower()
+        for keyword in ("phish", "hack", "exploit", "scam", "steal", "heist", "fake"):
+            if keyword in tag_lower:
+                score += 50
+                reasons.append(f"Explorer label: {info.name_tag}")
+                break
+        for keyword in ("tornado", "mixer"):
+            if keyword in tag_lower:
+                score += 40
+                reasons.append(f"Explorer label: {info.name_tag}")
+                break
+
+    # --- Counterparty analysis ---
+    if info.counterparties:
+        risky_count = len(info.counterparties)
+        score += min(30, risky_count * 15)
+        reasons.append(
+            f"Interacted with {risky_count} flagged address(es): "
+            + "; ".join(info.counterparties[:3])
+        )
+
     # --- Labels ---
     for label in info.labels:
         if "mixer" in label.lower() or "tornado" in label.lower():

@@ -16,6 +16,9 @@ class AddressInfo:
     is_contract: bool = False
     last_tx_hash: str | None = None
     error: str | None = None
+    # Enrichment data
+    name_tag: str | None = None  # Etherscan name tag (e.g. "Fake_Phishing")
+    counterparties: list[str] = field(default_factory=list)  # notable counterparty labels
 
 
 class BaseChainAnalyzer(ABC):
