@@ -6,17 +6,20 @@ import httpx
 from bot.config import settings
 from bot.services.chains.base import AddressInfo, BaseChainAnalyzer
 
-# Supported EVM networks and their explorers
+# Etherscan V2 unified API — single endpoint for all EVM chains
+ETHERSCAN_V2_URL = "https://api.etherscan.io/v2/api"
+
+# Supported EVM networks
 EVM_NETWORKS = {
     "ethereum": {
-        "api_url": "https://api.etherscan.io/api",
+        "chainid": 1,
         "api_key": lambda: settings.etherscan_api_key,
         "symbol": "ETH",
         "decimals": 18,
     },
     "bsc": {
-        "api_url": "https://api.bscscan.com/api",
-        "api_key": lambda: settings.bscscan_api_key,
+        "chainid": 56,
+        "api_key": lambda: settings.bscscan_api_key or settings.etherscan_api_key,
         "symbol": "BNB",
         "decimals": 18,
     },
@@ -31,7 +34,8 @@ class EVMAnalyzer(BaseChainAnalyzer):
     def __init__(self, network: str = "ethereum"):
         self.network = network
         net_config = EVM_NETWORKS.get(network, EVM_NETWORKS["ethereum"])
-        self.api_url = net_config["api_url"]
+        self.api_url = ETHERSCAN_V2_URL
+        self.chainid = net_config["chainid"]
         self.api_key = net_config["api_key"]()
         self.symbol = net_config["symbol"]
         self.decimals = net_config["decimals"]
@@ -47,17 +51,22 @@ class EVMAnalyzer(BaseChainAnalyzer):
             info.error = "Invalid EVM address format"
             return info
 
+        base_params = {
+            "chainid": self.chainid,
+            "apikey": self.api_key,
+        }
+
         async with httpx.AsyncClient(timeout=15) as client:
             try:
                 # Fetch balance
                 balance_resp = await client.get(
                     self.api_url,
                     params={
+                        **base_params,
                         "module": "account",
                         "action": "balance",
                         "address": address,
                         "tag": "latest",
-                        "apikey": self.api_key,
                     },
                 )
                 balance_data = balance_resp.json()
@@ -69,6 +78,7 @@ class EVMAnalyzer(BaseChainAnalyzer):
                 tx_resp = await client.get(
                     self.api_url,
                     params={
+                        **base_params,
                         "module": "account",
                         "action": "txlist",
                         "address": address,
@@ -77,7 +87,6 @@ class EVMAnalyzer(BaseChainAnalyzer):
                         "page": 1,
                         "offset": 5,
                         "sort": "asc",
-                        "apikey": self.api_key,
                     },
                 )
                 tx_data = tx_resp.json()
@@ -90,28 +99,29 @@ class EVMAnalyzer(BaseChainAnalyzer):
                 txcount_resp = await client.get(
                     self.api_url,
                     params={
+                        **base_params,
                         "module": "proxy",
                         "action": "eth_getTransactionCount",
                         "address": address,
                         "tag": "latest",
-                        "apikey": self.api_key,
                     },
                 )
                 txcount_data = txcount_resp.json()
-                if txcount_data.get("result"):
-                    info.tx_count = int(txcount_data["result"], 16)
+                result = txcount_data.get("result", "")
+                if result and result.startswith("0x"):
+                    info.tx_count = int(result, 16)
 
                 # Get last tx for last_active
                 last_tx_resp = await client.get(
                     self.api_url,
                     params={
+                        **base_params,
                         "module": "account",
                         "action": "txlist",
                         "address": address,
                         "page": 1,
                         "offset": 1,
                         "sort": "desc",
-                        "apikey": self.api_key,
                     },
                 )
                 last_tx_data = last_tx_resp.json()
@@ -125,15 +135,16 @@ class EVMAnalyzer(BaseChainAnalyzer):
                 code_resp = await client.get(
                     self.api_url,
                     params={
+                        **base_params,
                         "module": "proxy",
                         "action": "eth_getCode",
                         "address": address,
                         "tag": "latest",
-                        "apikey": self.api_key,
                     },
                 )
                 code_data = code_resp.json()
-                if code_data.get("result") and code_data["result"] != "0x":
+                code_result = code_data.get("result", "")
+                if code_result and code_result.startswith("0x") and code_result != "0x":
                     info.is_contract = True
                     info.labels.append("contract")
 
