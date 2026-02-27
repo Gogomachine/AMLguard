@@ -22,6 +22,11 @@ class Settings(BaseSettings):
     twitter_access_token: str = ""
     twitter_access_secret: str = ""
 
+    # News digest
+    news_sources: str = ""  # comma-separated URLs of RSS/HTML sources
+    digest_morning_hour: int = 9   # UTC hour for morning digest
+    digest_evening_hour: int = 18  # UTC hour for evening digest
+
     # App
     database_url: str = "sqlite+aiosqlite:///./txpeek.db"
     log_level: str = "INFO"

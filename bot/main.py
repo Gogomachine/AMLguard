@@ -15,6 +15,7 @@ from telegram import BotCommand
 from bot.config import settings
 from bot.database.db import init_db
 from bot.handlers import register_all_handlers
+from bot.scheduler import start_scheduler
 
 logging.basicConfig(
     level=getattr(logging, settings.log_level.upper(), logging.INFO),
@@ -39,11 +40,15 @@ async def run_polling():
     await app.bot.set_my_commands([
         BotCommand("check", "Проверить крипто-адрес"),
         BotCommand("learn", "Обучение AML"),
+        BotCommand("digest", "AML-дайджест"),
         BotCommand("menu", "Главное меню"),
         BotCommand("help", "Помощь"),
     ])
     await app.start()
     await app.updater.start_polling()
+
+    # Start scheduled tasks (news digest etc.)
+    start_scheduler()
 
     logger.info("TxPeek is running! Press Ctrl+C to stop.")
 
@@ -54,6 +59,10 @@ async def run_polling():
     except (KeyboardInterrupt, SystemExit):
         pass
     finally:
+        from bot.scheduler import scheduler
+
+        if scheduler.running:
+            scheduler.shutdown(wait=False)
         await app.updater.stop()
         await app.stop()
         await app.shutdown()
