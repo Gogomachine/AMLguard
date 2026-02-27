@@ -14,6 +14,8 @@ from bot.config import settings
 from bot.database.db import async_session
 from bot.models.news_article import NewsArticle
 from bot.services.news_parser import ParsedArticle, fetch_all_sources
+
+FALLBACK_LIMIT = 5
 from bot.services.publisher import publish_to_telegram_channel
 
 logger = logging.getLogger(__name__)
@@ -77,6 +79,28 @@ async def _save_articles(articles: list[ParsedArticle]) -> None:
             )
             session.add(db_article)
         await session.commit()
+
+
+async def _get_latest_from_db(limit: int = FALLBACK_LIMIT) -> list[ParsedArticle]:
+    """Fetch the most recent articles from the database as a fallback."""
+    async with async_session() as session:
+        result = await session.execute(
+            select(NewsArticle)
+            .order_by(NewsArticle.created_at.desc())
+            .limit(limit)
+        )
+        rows = result.scalars().all()
+
+    return [
+        ParsedArticle(
+            title=row.title,
+            url=row.url,
+            snippet=row.summary or "",
+            source=row.source,
+            published_at=row.published_at,
+        )
+        for row in rows
+    ]
 
 
 async def _mark_as_posted(urls: list[str]) -> None:
@@ -155,21 +179,23 @@ async def generate_and_post_digest(period: str = "утро") -> bool:
 
     # 1. Fetch articles from all sources
     all_articles = await fetch_all_sources(sources)
-    if not all_articles:
-        logger.info("No articles fetched from any source")
-        return False
 
     # 2. Filter out already seen articles
-    new_articles = await _filter_new_articles(all_articles)
-    if not new_articles:
-        logger.info("No new articles to include in digest")
-        return False
+    new_articles = await _filter_new_articles(all_articles) if all_articles else []
 
-    # 3. Save to database
-    await _save_articles(new_articles)
+    # 3. Save new articles to database
+    if new_articles:
+        await _save_articles(new_articles)
 
-    # 4. Pick top articles for digest (max 7)
-    digest_articles = new_articles[:7]
+    # 4. Pick top articles for digest (max 7); fall back to latest from DB
+    if new_articles:
+        digest_articles = new_articles[:7]
+    else:
+        logger.info("No new articles — falling back to latest %d from DB", FALLBACK_LIMIT)
+        digest_articles = await _get_latest_from_db()
+        if not digest_articles:
+            logger.warning("Database is empty — nothing to build a digest from")
+            return False
 
     # 5. Summarize with Claude
     try:

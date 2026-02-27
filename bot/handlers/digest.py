@@ -26,8 +26,8 @@ async def digest_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         else:
             await update.message.reply_text(
-                "⚠️ Нет новых статей для дайджеста, "
-                "или источники не настроены (NEWS_SOURCES в .env)."
+                "⚠️ База статей пуста. Попробуйте позже — "
+                "источники ещё не были загружены."
             )
     except Exception as e:
         logger.error("Manual digest failed: %s", e)
