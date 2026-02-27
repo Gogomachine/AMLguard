@@ -327,20 +327,33 @@ async def fetch_articles(url: str) -> list[ParsedArticle]:
     return articles
 
 
+async def _safe_fetch(url: str) -> list[ParsedArticle]:
+    """Fetch articles from a single source, catching all errors."""
+    try:
+        return await fetch_articles(url)
+    except Exception as e:
+        logger.error("Error processing source %s: %s", url, e)
+        return []
+
+
 async def fetch_all_sources(urls: list[str]) -> list[ParsedArticle]:
-    """Fetch articles from all configured sources, deduplicate by URL."""
+    """Fetch articles from all configured sources in parallel, deduplicate by URL."""
+    results = await asyncio.gather(*[_safe_fetch(url) for url in urls])
+
     all_articles: list[ParsedArticle] = []
     seen_urls: set[str] = set()
+    sources_ok = 0
 
-    for url in urls:
-        try:
-            articles = await fetch_articles(url)
-            for article in articles:
-                if article.url not in seen_urls:
-                    seen_urls.add(article.url)
-                    all_articles.append(article)
-        except Exception as e:
-            logger.error("Error processing source %s: %s", url, e)
+    for articles in results:
+        if articles:
+            sources_ok += 1
+        for article in articles:
+            if article.url not in seen_urls:
+                seen_urls.add(article.url)
+                all_articles.append(article)
 
-    logger.info("Total articles fetched: %d from %d sources", len(all_articles), len(urls))
+    logger.info(
+        "Total articles fetched: %d from %d/%d sources",
+        len(all_articles), sources_ok, len(urls),
+    )
     return all_articles

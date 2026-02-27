@@ -23,21 +23,20 @@ logger = logging.getLogger(__name__)
 # Default AML news sources — user can override via NEWS_SOURCES env var
 # RSS feeds preferred (more reliable); HTML pages as fallback
 DEFAULT_SOURCES: list[str] = [
-    # Blockchain analytics (RSS)
+    # Russian-language crypto media (RSS) — reliable
+    "https://forklog.com/feed",
+    # Crypto media — general (RSS)
+    "https://www.coindesk.com/arc/outboundfeeds/rss",
+    "https://cointelegraph.com/rss",
+    "https://decrypt.co/feed",
+    "https://blockworks.co/feed",
+    # Blockchain analytics / AML-focused (RSS)
     "https://www.chainalysis.com/blog/feed",
     "https://www.elliptic.co/blog/rss.xml",
-    # Blockchain analytics (HTML — React SPA, may need JS rendering)
-    "https://www.trmlabs.com/category/insights",
-    "https://www.trmlabs.com/category/trm-investigations",
-    "https://www.trmlabs.com/category/foundations",
     # AML / Compliance organizations (RSS)
     "https://www.acamstoday.org/feed/",
-    # Regulators (HTML — server-rendered, scrapable)
+    # Regulators (HTML — server-rendered)
     "https://www.fatf-gafi.org/en/the-fatf/news.html",
-    # Crypto media — policy & regulation (RSS)
-    "https://www.coindesk.com/arc/outboundfeeds/rss/?category=policy",
-    # Russian-language crypto media (RSS)
-    "https://forklog.com/feed",
 ]
 
 
