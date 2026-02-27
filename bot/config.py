@@ -24,7 +24,6 @@ class Settings(BaseSettings):
 
     # App
     database_url: str = "sqlite+aiosqlite:///./txpeek.db"
-    webapp_url: str = "http://localhost:8000"
     log_level: str = "INFO"
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}

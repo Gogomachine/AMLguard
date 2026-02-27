@@ -2,10 +2,9 @@
 /start and onboarding flow.
 """
 
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardRemove, WebAppInfo
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardRemove
 from telegram.ext import CommandHandler, ContextTypes
 
-from bot.config import settings
 from bot.database.db import async_session
 from bot.services.gamification import get_or_create_user
 
@@ -50,20 +49,14 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         reply_markup=ReplyKeyboardRemove(),
     )
 
-    keyboard = []
-    if settings.webapp_url:
-        keyboard.append([
-            InlineKeyboardButton(
-                "🚀 Открыть TxPeek App",
-                web_app=WebAppInfo(url=f"{settings.webapp_url}/webapp"),
-            )
-        ])
-    keyboard.append([InlineKeyboardButton("📢 Наш канал", url="https://t.me/txpeek")])
+    keyboard = [
+        [InlineKeyboardButton("📢 Наш канал", url="https://t.me/txpeek")],
+    ]
 
     await update.message.reply_text(
         WELCOME_MESSAGE,
         parse_mode="HTML",
-        reply_markup=InlineKeyboardMarkup(keyboard) if keyboard else None,
+        reply_markup=InlineKeyboardMarkup(keyboard),
     )
 
 
