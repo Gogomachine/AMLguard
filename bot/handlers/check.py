@@ -2,17 +2,25 @@
 Address check handler — the core feature.
 
 Uses on-chain data + heuristic risk scoring. No Claude API calls.
+"Deep analysis" button triggers Claude API on user's explicit request.
 """
 
 import logging
 
-from telegram import Update
-from telegram.ext import CommandHandler, ContextTypes, MessageHandler, filters
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import (
+    CallbackQueryHandler,
+    CommandHandler,
+    ContextTypes,
+    MessageHandler,
+    filters,
+)
 
 from bot.database.db import async_session
 from bot.models.address_check import AddressCheck
 from bot.services.chain_analyzer import analyze_address, detect_chain
 from bot.services.risk_scorer import compute_risk_score
+from bot.services.claude_agent import analyze_address_with_ai
 from bot.services.gamification import get_or_create_user, award_check_xp, update_quest_progress
 
 logger = logging.getLogger(__name__)
@@ -118,11 +126,76 @@ async def _do_check(update: Update, address: str, chain: str | None) -> None:
 
         summary += xp_line
 
-        await thinking_msg.edit_text(summary, parse_mode="HTML")
+        # 6. "Deep analysis" button — encodes address and chain into callback_data
+        effective_chain = info.chain
+        callback_data = f"deep:{effective_chain}:{address}"
+        # Telegram callback_data max 64 bytes — truncate address if needed
+        if len(callback_data) > 64:
+            callback_data = f"deep:{effective_chain}:{address[:50]}"
+
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("🧠 Глубокий анализ (AI)", callback_data=callback_data)]
+        ])
+
+        await thinking_msg.edit_text(summary, parse_mode="HTML", reply_markup=keyboard)
 
     except Exception as e:
         logger.exception("Check failed")
         await thinking_msg.edit_text(f"😔 Что-то пошло не так: {e}")
+
+
+async def deep_analysis_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle 'deep analysis' button — calls Claude API."""
+    query = update.callback_query
+    await query.answer()
+
+    # Parse callback: deep:<chain>:<address>
+    parts = query.data.split(":", 2)
+    if len(parts) != 3:
+        await query.message.reply_text("⚠️ Ошибка: не удалось прочитать адрес.")
+        return
+
+    _, chain, address = parts
+
+    # Remove the button so it can't be pressed again
+    await query.edit_message_reply_markup(reply_markup=None)
+
+    thinking_msg = await query.message.reply_text("🧠 Запускаю глубокий AI-анализ...")
+
+    try:
+        # Re-fetch on-chain data for fresh context
+        info = await analyze_address(address, chain)
+
+        if info.error:
+            await thinking_msg.edit_text(f"⚠️ Не удалось получить данные: {info.error}")
+            return
+
+        # Call Claude API
+        ai_text = await analyze_address_with_ai(info)
+
+        # Save AI summary to DB
+        async with async_session() as session:
+            from sqlalchemy import select
+
+            result = await session.execute(
+                select(AddressCheck)
+                .where(AddressCheck.address == address)
+                .order_by(AddressCheck.created_at.desc())
+                .limit(1)
+            )
+            check = result.scalar_one_or_none()
+            if check:
+                check.ai_summary = ai_text
+                await session.commit()
+
+        await thinking_msg.edit_text(
+            f"🧠 <b>Глубокий анализ</b>\n\n{ai_text}",
+            parse_mode="HTML",
+        )
+
+    except Exception as e:
+        logger.exception("Deep analysis failed")
+        await thinking_msg.edit_text(f"😔 AI-анализ не удался: {e}")
 
 
 def _build_summary(info, score: float, level: str, reasons: list[str]) -> str:
@@ -161,6 +234,7 @@ def _build_summary(info, score: float, level: str, reasons: list[str]) -> str:
 
 def register_check_handlers(app) -> None:
     app.add_handler(CommandHandler("check", check_command))
+    app.add_handler(CallbackQueryHandler(deep_analysis_callback, pattern=r"^deep:"))
     app.add_handler(
         MessageHandler(filters.TEXT & ~filters.COMMAND, handle_raw_address),
         group=1,
