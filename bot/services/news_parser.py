@@ -132,12 +132,20 @@ def _parse_rss(xml_text: str, source_domain: str) -> list[ParsedArticle]:
             pub_date.get_text(strip=True) if pub_date else None
         )
 
+        # Google News RSS: extract real source from <source> tag
+        article_source = source_domain
+        source_tag = item.find("source")
+        if source_tag:
+            source_url = source_tag.get("url", "")
+            if source_url:
+                article_source = urlparse(source_url).netloc or source_domain
+
         articles.append(
             ParsedArticle(
                 url=url,
                 title=title,
                 snippet=snippet,
-                source=source_domain,
+                source=article_source,
                 published_at=published_at,
             )
         )
@@ -280,6 +288,34 @@ async def _fetch_url(url: str) -> tuple[str, str] | None:
 
 
 # ---------------------------------------------------------------------------
+# Google News URL resolution
+# ---------------------------------------------------------------------------
+
+async def _resolve_google_url(article: ParsedArticle) -> ParsedArticle:
+    """Resolve Google News redirect URL to the actual article URL."""
+    if "news.google.com" not in article.url:
+        return article
+    try:
+        async with httpx.AsyncClient(
+            headers=_headers(), timeout=10, follow_redirects=True,
+        ) as client:
+            resp = await client.head(article.url)
+            resolved = str(resp.url)
+            if resolved != article.url:
+                article.url = resolved
+                # Update source domain from resolved URL
+                article.source = urlparse(resolved).netloc
+    except Exception:
+        pass  # keep original Google URL if resolution fails
+    return article
+
+
+async def _resolve_google_urls(articles: list[ParsedArticle]) -> list[ParsedArticle]:
+    """Resolve all Google News redirect URLs in parallel."""
+    return list(await asyncio.gather(*[_resolve_google_url(a) for a in articles]))
+
+
+# ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
@@ -307,6 +343,9 @@ async def fetch_articles(url: str) -> list[ParsedArticle]:
 
     if is_rss:
         articles = _parse_rss(content, domain)
+        # Resolve Google News redirect URLs to actual article URLs
+        if "news.google.com" in domain:
+            articles = await _resolve_google_urls(articles)
         logger.info("Parsed %d articles from RSS: %s", len(articles), domain)
         return articles
 

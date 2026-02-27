@@ -37,6 +37,9 @@ DEFAULT_SOURCES: list[str] = [
     "https://www.acamstoday.org/feed/",
     # Regulators (HTML — server-rendered)
     "https://www.fatf-gafi.org/en/the-fatf/news.html",
+    # Google News RSS — picks up TRM Labs + general AML/crypto articles
+    "https://news.google.com/rss/search?q=site:trmlabs.com&hl=en&gl=US&ceid=US:en",
+    "https://news.google.com/rss/search?q=AML+crypto+compliance+regulation&hl=en&gl=US&ceid=US:en",
 ]
 
 
