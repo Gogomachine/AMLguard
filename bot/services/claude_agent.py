@@ -1,12 +1,8 @@
 """
 Claude-powered AML agent — the brain of TxPeek.
-
-Provides:
-- Friendly AML/compliance explanations
-- Address risk analysis with AI reasoning
-- Case investigation assistance
-- Content generation for social media
 """
+
+import re
 
 import anthropic
 
@@ -22,24 +18,43 @@ SYSTEM_PROMPT = """\
 - Говоришь просто и понятно, без занудства
 - Используешь аналогии из реальной жизни
 - Добавляешь немного юмора, но остаёшься профессиональным
-- Поддерживаешь и мотивируешь пользователей изучать AML
+- Используешь эмоджи для визуального оформления
 - Отвечаешь на русском, если пользователь пишет на русском
 
-Правила:
+КРИТИЧЕСКИ ВАЖНЫЕ правила форматирования:
+- НИКОГДА не используй символы * и # в ответах
+- Для выделения используй HTML-теги: <b>жирный</b>, <i>курсив</i>
+- Списки оформляй через символ •
+- Ответ должен быть компактным и уместиться в ОДНО сообщение Telegram (до 4000 символов)
+- Не используй Markdown — только чистый HTML
+
+Правила по содержанию:
 - Никогда не даёшь финансовых советов
 - Подчёркиваешь что анализ — это эвристика, а не финальный вердикт
 - При высоком риске рекомендуешь обратиться к профессиональному AML-сервису
-- Объясняешь терминологию, когда используешь её впервые
 """
+
+
+def _clean_response(text: str) -> str:
+    """Strip markdown artifacts from AI response, keep HTML only."""
+    # Remove markdown bold/italic
+    text = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", text)
+    text = re.sub(r"\*(.+?)\*", r"<i>\1</i>", text)
+    # Remove markdown headers
+    text = re.sub(r"^#{1,6}\s+", "", text, flags=re.MULTILINE)
+    # Remove markdown links [text](url) → text
+    text = re.sub(r"\[([^\]]+)\]\([^\)]+\)", r"\1", text)
+    # Remove leftover * and #
+    text = text.replace("*", "").replace("#", "")
+    # Truncate to Telegram limit
+    if len(text) > 4000:
+        text = text[:3950] + "\n\n...ответ сокращён"
+    return text.strip()
 
 
 def _format_address_context(info: AddressInfo, score: float, level: str, reasons: list[str]) -> str:
     """Format address data into context for Claude."""
-    age_str = "неизвестен"
-    if info.first_seen:
-        age_days = (info.last_active or info.first_seen) and info.first_seen
-        age_str = info.first_seen.strftime("%Y-%m-%d")
-
+    age_str = info.first_seen.strftime("%Y-%m-%d") if info.first_seen else "неизвестен"
     last_active_str = info.last_active.strftime("%Y-%m-%d %H:%M UTC") if info.last_active else "неизвестно"
 
     return f"""Результаты проверки адреса:
@@ -68,24 +83,27 @@ async def analyze_address_with_ai(info: AddressInfo) -> str:
 
     message = await client.messages.create(
         model="claude-sonnet-4-20250514",
-        max_tokens=800,
+        max_tokens=700,
         system=SYSTEM_PROMPT,
         messages=[
             {
                 "role": "user",
                 "content": f"""Проанализируй этот крипто-адрес и дай краткий, понятный отчёт.
-Включи:
-1. Уровень риска (визуально: 🟢🟡🟠🔴)
-2. Ключевые наблюдения (2-3 пункта)
+
+Формат ответа (строго HTML, без markdown):
+1. Уровень риска с эмоджи (🟢🟡🟠🔴)
+2. Ключевые наблюдения (2-3 пункта через •)
 3. Что это может означать простым языком
-4. Рекомендации
+4. Короткая рекомендация
+
+Ответ должен быть компактным — до 2000 символов.
 
 {context}""",
             }
         ],
     )
 
-    return message.content[0].text
+    return _clean_response(message.content[0].text)
 
 
 async def explain_topic(topic: str) -> str:
@@ -94,40 +112,21 @@ async def explain_topic(topic: str) -> str:
 
     message = await client.messages.create(
         model="claude-sonnet-4-20250514",
-        max_tokens=600,
+        max_tokens=500,
         system=SYSTEM_PROMPT,
         messages=[
             {
                 "role": "user",
-                "content": f"Объясни простым языком: {topic}",
+                "content": (
+                    f"Объясни простым языком: {topic}\n\n"
+                    "Формат: чистый HTML (без markdown). Используй <b> для выделения, "
+                    "• для списков, эмоджи для визуала. Ответ до 2000 символов."
+                ),
             }
         ],
     )
 
-    return message.content[0].text
-
-
-async def chat(user_message: str, context: str = "") -> str:
-    """General chat with the AML agent."""
-    client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
-
-    system = SYSTEM_PROMPT
-    if context:
-        system += f"\n\nДополнительный контекст о пользователе:\n{context}"
-
-    message = await client.messages.create(
-        model="claude-sonnet-4-20250514",
-        max_tokens=600,
-        system=system,
-        messages=[
-            {
-                "role": "user",
-                "content": user_message,
-            }
-        ],
-    )
-
-    return message.content[0].text
+    return _clean_response(message.content[0].text)
 
 
 async def generate_social_post(case_data: str, platform: str = "telegram") -> str:
@@ -147,12 +146,9 @@ async def generate_social_post(case_data: str, platform: str = "telegram") -> st
 
 {case_data}
 
-Пост должен быть:
-- Информативным и цепляющим
-- С практической пользой для читателей
-- С призывом к действию (проверить свои адреса, подписаться)""",
+Формат: чистый текст с эмоджи, без markdown.""",
             }
         ],
     )
 
-    return message.content[0].text
+    return _clean_response(message.content[0].text)
