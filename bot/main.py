@@ -10,6 +10,7 @@ import sys
 
 import uvicorn
 from telegram.ext import ApplicationBuilder
+from telegram import BotCommand
 
 from bot.config import settings
 from bot.database.db import init_db
@@ -35,6 +36,12 @@ async def run_polling():
 
     # Run
     await app.initialize()
+    await app.bot.set_my_commands([
+        BotCommand("check", "Проверить крипто-адрес"),
+        BotCommand("learn", "Обучение AML"),
+        BotCommand("menu", "Главное меню"),
+        BotCommand("help", "Помощь"),
+    ])
     await app.start()
     await app.updater.start_polling()
 

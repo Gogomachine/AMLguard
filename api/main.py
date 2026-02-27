@@ -6,6 +6,8 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
+from telegram import BotCommand
+
 from bot.database.db import init_db
 from api.routes.webhook import router as webhook_router
 
@@ -14,6 +16,15 @@ from api.routes.webhook import router as webhook_router
 async def lifespan(app: FastAPI):
     # Startup
     await init_db()
+    # Set bot menu commands
+    bot_app = getattr(app.state, "bot_app", None)
+    if bot_app:
+        await bot_app.bot.set_my_commands([
+            BotCommand("check", "Проверить крипто-адрес"),
+            BotCommand("learn", "Обучение AML"),
+            BotCommand("menu", "Главное меню"),
+            BotCommand("help", "Помощь"),
+        ])
     yield
     # Shutdown
 
