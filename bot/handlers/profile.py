@@ -1,27 +1,30 @@
 """
-/profile and /leaderboard handlers.
+/profile handler.
 """
 
-from telegram import Update
+from telegram import Update, User as TgUser
 from telegram.ext import CommandHandler, ContextTypes
 from sqlalchemy import select
 
 from bot.database.db import async_session
 from bot.models.user import LEVEL_THRESHOLDS
 from bot.models.achievement import UserAchievement, Achievement
-from bot.services.gamification import get_or_create_user, get_leaderboard
+from bot.services.gamification import get_or_create_user
 
 
 async def profile_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Show user profile."""
-    user = update.effective_user
+    """Handle /profile command."""
+    await show_profile(update.message, update.effective_user)
 
+
+async def show_profile(message, tg_user: TgUser) -> None:
+    """Show user profile. Called from /profile and from menu button."""
     async with async_session() as session:
         db_user = await get_or_create_user(
             session,
-            telegram_id=user.id,
-            username=user.username,
-            first_name=user.first_name,
+            telegram_id=tg_user.id,
+            username=tg_user.username,
+            first_name=tg_user.first_name,
         )
 
         # Get achievements
@@ -60,31 +63,8 @@ async def profile_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         else:
             text += "\n<i>Пока нет ачивок — начни проверять адреса!</i>"
 
-    await update.message.reply_text(text, parse_mode="HTML")
-
-
-async def leaderboard_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Show top detectives."""
-    async with async_session() as session:
-        top_users = await get_leaderboard(session, limit=10)
-
-    if not top_users:
-        await update.message.reply_text("🏆 Лидерборд пуст — стань первым!")
-        return
-
-    medals = {1: "🥇", 2: "🥈", 3: "🥉"}
-    text = "🏆 <b>Топ детективов TxPeek:</b>\n\n"
-
-    for u in top_users:
-        medal = medals.get(u["rank"], f"{u['rank']}.")
-        text += (
-            f"{medal} <b>{u['username']}</b>\n"
-            f"   Ур.{u['level']} {u['level_name']} | {u['xp']} XP | {u['checks']} проверок\n\n"
-        )
-
-    await update.message.reply_text(text, parse_mode="HTML")
+    await message.reply_text(text, parse_mode="HTML")
 
 
 def register_profile_handlers(app) -> None:
     app.add_handler(CommandHandler("profile", profile_command))
-    app.add_handler(CommandHandler("leaderboard", leaderboard_command))

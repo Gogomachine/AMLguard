@@ -21,7 +21,7 @@ from bot.models.address_check import AddressCheck
 from bot.services.chain_analyzer import analyze_address, detect_chain
 from bot.services.risk_scorer import compute_risk_score
 from bot.services.claude_agent import analyze_address_with_ai
-from bot.services.gamification import get_or_create_user, award_check_xp, update_quest_progress
+from bot.services.gamification import get_or_create_user, award_check_xp
 
 logger = logging.getLogger(__name__)
 
@@ -111,7 +111,6 @@ async def _do_check(update: Update, address: str, chain: str | None) -> None:
             await session.commit()
 
             rewards = await award_check_xp(session, db_user, score)
-            completed_quests = await update_quest_progress(session, db_user, info.chain, score)
 
         # 5. Append gamification
         xp_line = f"\n✨ +{rewards['xp_earned']} XP"
@@ -120,9 +119,6 @@ async def _do_check(update: Update, address: str, chain: str | None) -> None:
 
         for ach in rewards["achievements"]:
             xp_line += f"\n🏆 Ачивка: {ach['icon']} {ach['title']} (+{ach['xp']} XP)"
-
-        for quest in completed_quests:
-            xp_line += f"\n📋 Квест выполнен: {quest['title']} (+{quest['xp']} XP)"
 
         summary += xp_line
 

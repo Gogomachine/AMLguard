@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from bot.database.db import init_db, async_session
-from bot.services.gamification import seed_achievements, seed_default_quests
+from bot.services.gamification import seed_achievements
 from api.routes.webhook import router as webhook_router
 
 
@@ -17,7 +17,6 @@ async def lifespan(app: FastAPI):
     await init_db()
     async with async_session() as session:
         await seed_achievements(session)
-        await seed_default_quests(session)
     yield
     # Shutdown
 

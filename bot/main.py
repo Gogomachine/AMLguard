@@ -14,7 +14,7 @@ from telegram.ext import ApplicationBuilder
 from bot.config import settings
 from bot.database.db import init_db, async_session
 from bot.handlers import register_all_handlers
-from bot.services.gamification import seed_achievements, seed_default_quests
+from bot.services.gamification import seed_achievements
 
 logging.basicConfig(
     level=getattr(logging, settings.log_level.upper(), logging.INFO),
@@ -31,7 +31,6 @@ async def run_polling():
     await init_db()
     async with async_session() as session:
         await seed_achievements(session)
-        await seed_default_quests(session)
 
     # Build bot application
     app = ApplicationBuilder().token(settings.telegram_bot_token).build()

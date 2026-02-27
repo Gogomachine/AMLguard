@@ -53,7 +53,6 @@ class User(Base):
     )
 
     address_checks: Mapped[list["AddressCheck"]] = relationship(back_populates="user")  # noqa: F821
-    user_quests: Mapped[list["UserQuest"]] = relationship(back_populates="user")  # noqa: F821
     user_achievements: Mapped[list["UserAchievement"]] = relationship(  # noqa: F821
         back_populates="user"
     )

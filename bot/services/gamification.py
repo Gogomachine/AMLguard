@@ -1,8 +1,8 @@
 """
-Gamification engine — XP, levels, achievements, quests, streaks.
+Gamification engine — XP, levels, achievements, streaks.
 """
 
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -10,13 +10,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from bot.models.user import User, LEVEL_NAMES
 from bot.models.address_check import AddressCheck
 from bot.models.achievement import Achievement, UserAchievement, DEFAULT_ACHIEVEMENTS
-from bot.models.quest import Quest, UserQuest
 
 # XP rewards for various actions
 XP_CHECK_ADDRESS = 20
 XP_FIRST_CHECK_OF_DAY = 10  # Bonus
 XP_FIND_RISKY = 30  # risk_score > 70
-XP_QUEST_BONUS = 50  # On top of quest reward
 
 
 async def seed_achievements(session: AsyncSession) -> None:
@@ -27,60 +25,6 @@ async def seed_achievements(session: AsyncSession) -> None:
         )
         if not existing.scalar_one_or_none():
             session.add(Achievement(**ach_data))
-    await session.commit()
-
-
-async def seed_default_quests(session: AsyncSession) -> None:
-    """Create initial quests if none exist."""
-    existing = await session.execute(select(func.count(Quest.id)))
-    if existing.scalar() > 0:
-        return
-
-    default_quests = [
-        Quest(
-            title="Первый взгляд",
-            description="Проверь свой первый крипто-адрес",
-            quest_type="daily",
-            xp_reward=30,
-            condition_type="check_count",
-            condition_value=1,
-        ),
-        Quest(
-            title="Тройная проверка",
-            description="Проверь 3 разных адреса за день",
-            quest_type="daily",
-            xp_reward=50,
-            condition_type="check_count",
-            condition_value=3,
-        ),
-        Quest(
-            title="Охотник за рисками",
-            description="Найди адрес с уровнем риска выше 50",
-            quest_type="weekly",
-            xp_reward=100,
-            condition_type="find_risky",
-            condition_value=1,
-        ),
-        Quest(
-            title="Мультичейн-исследователь",
-            description="Проверь адреса в 3 разных сетях",
-            quest_type="weekly",
-            xp_reward=150,
-            condition_type="check_chain",
-            condition_value=3,
-        ),
-        Quest(
-            title="Марафонец",
-            description="Проверяй адреса 5 дней подряд",
-            quest_type="weekly",
-            xp_reward=200,
-            condition_type="streak",
-            condition_value=5,
-        ),
-    ]
-
-    for quest in default_quests:
-        session.add(quest)
     await session.commit()
 
 
@@ -105,9 +49,7 @@ async def award_check_xp(
     user: User,
     risk_score: float,
 ) -> dict:
-    """
-    Award XP for an address check. Returns info about rewards.
-    """
+    """Award XP for an address check. Returns info about rewards."""
     rewards = {"xp_earned": 0, "leveled_up": False, "new_level": None, "achievements": []}
 
     xp = XP_CHECK_ADDRESS
@@ -154,11 +96,9 @@ async def _check_achievements(
     """Check and unlock new achievements."""
     unlocked = []
 
-    # Get all achievements
     result = await session.execute(select(Achievement))
     all_achievements = result.scalars().all()
 
-    # Get user's existing achievements
     result = await session.execute(
         select(UserAchievement.achievement_id).where(UserAchievement.user_id == user.id)
     )
@@ -197,83 +137,3 @@ async def _check_achievements(
             )
 
     return unlocked
-
-
-async def update_quest_progress(
-    session: AsyncSession,
-    user: User,
-    check_chain: str,
-    risk_score: float,
-) -> list[dict]:
-    """Update quest progress after an address check. Returns completed quests."""
-    completed = []
-
-    # Get active quests
-    result = await session.execute(select(Quest).where(Quest.is_active.is_(True)))
-    quests = result.scalars().all()
-
-    for quest in quests:
-        # Get or create user quest
-        result = await session.execute(
-            select(UserQuest).where(
-                UserQuest.user_id == user.id,
-                UserQuest.quest_id == quest.id,
-                UserQuest.is_completed.is_(False),
-            )
-        )
-        uq = result.scalar_one_or_none()
-
-        if not uq:
-            uq = UserQuest(user_id=user.id, quest_id=quest.id, progress=0)
-            session.add(uq)
-
-        # Update progress based on condition
-        should_increment = False
-
-        if quest.condition_type == "check_count":
-            should_increment = True
-        elif quest.condition_type == "find_risky" and risk_score > 50:
-            should_increment = True
-        elif quest.condition_type == "check_chain":
-            # Count unique chains checked today
-            result = await session.execute(
-                select(func.count(func.distinct(AddressCheck.chain))).where(
-                    AddressCheck.user_id == user.id
-                )
-            )
-            unique = result.scalar() or 0
-            uq.progress = unique
-        elif quest.condition_type == "streak":
-            uq.progress = user.streak_days
-
-        if should_increment:
-            uq.progress += 1
-
-        if uq.progress >= quest.condition_value and not uq.is_completed:
-            uq.is_completed = True
-            uq.completed_at = datetime.now(timezone.utc)
-            user.add_xp(quest.xp_reward)
-            completed.append({"title": quest.title, "xp": quest.xp_reward})
-
-    await session.commit()
-    return completed
-
-
-async def get_leaderboard(session: AsyncSession, limit: int = 10) -> list[dict]:
-    """Get top users by XP."""
-    result = await session.execute(
-        select(User).order_by(User.xp.desc()).limit(limit)
-    )
-    users = result.scalars().all()
-
-    return [
-        {
-            "rank": i + 1,
-            "username": u.username or u.first_name or f"User #{u.telegram_id}",
-            "level": u.level,
-            "level_name": u.level_name,
-            "xp": u.xp,
-            "checks": u.checks_count,
-        }
-        for i, u in enumerate(users)
-    ]
