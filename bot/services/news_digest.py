@@ -167,15 +167,15 @@ def _format_digest(summary: str, period: str) -> str:
 # Public API
 # ---------------------------------------------------------------------------
 
-async def generate_and_post_digest(period: str = "утро") -> bool:
+async def generate_digest(period: str = "утро") -> str | None:
     """
-    Main pipeline: fetch → filter → save → summarise → post.
-    Returns True if digest was posted successfully.
+    Generate digest text: fetch → filter → save → summarise → format.
+    Returns formatted digest string, or None if nothing to build from.
     """
     sources = _get_sources()
     if not sources:
         logger.warning("No news sources configured. Set NEWS_SOURCES in .env")
-        return False
+        return None
 
     # 1. Fetch articles from all sources
     all_articles = await fetch_all_sources(sources)
@@ -195,22 +195,32 @@ async def generate_and_post_digest(period: str = "утро") -> bool:
         digest_articles = await _get_latest_from_db()
         if not digest_articles:
             logger.warning("Database is empty — nothing to build a digest from")
-            return False
+            return None
 
     # 5. Summarize with Claude
     try:
         summary = await _summarize_for_digest(digest_articles)
     except Exception as e:
         logger.error("Failed to generate digest summary: %s", e)
+        return None
+
+    # 6. Format
+    return _format_digest(summary, period)
+
+
+async def generate_and_post_digest(period: str = "утро") -> bool:
+    """
+    Full pipeline for scheduled posting: generate digest and publish to channel.
+    Returns True if digest was posted successfully.
+    """
+    post = await generate_digest(period)
+    if not post:
         return False
 
-    # 6. Format and post
-    post = _format_digest(summary, period)
     success = await publish_to_telegram_channel(post)
 
     if success:
-        await _mark_as_posted([a.url for a in digest_articles])
-        logger.info("Digest posted successfully with %d articles", len(digest_articles))
+        logger.info("Digest posted successfully to channel")
     else:
         logger.error("Failed to post digest to Telegram channel")
 

@@ -7,23 +7,21 @@ import logging
 from telegram import Update
 from telegram.ext import CommandHandler, ContextTypes
 
-from bot.services.news_digest import generate_and_post_digest
+from bot.services.news_digest import generate_digest
 
 logger = logging.getLogger(__name__)
 
 
 async def digest_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle /digest command — manually generate and post a digest."""
+    """Handle /digest command — generate digest and send it directly to the user."""
     await update.message.reply_text(
         "📰 Генерирую AML-дайджест... Это может занять минуту.",
     )
 
     try:
-        success = await generate_and_post_digest(period="ручной")
-        if success:
-            await update.message.reply_text(
-                "✅ Дайджест опубликован в канале!"
-            )
+        post = await generate_digest(period="по запросу")
+        if post:
+            await update.message.reply_text(post, parse_mode="HTML")
         else:
             await update.message.reply_text(
                 "⚠️ База статей пуста. Попробуйте позже — "
