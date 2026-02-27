@@ -1,5 +1,7 @@
 """
 Address check handler — the core feature.
+
+Uses on-chain data + heuristic risk scoring. No Claude API calls.
 """
 
 import logging
@@ -11,7 +13,6 @@ from bot.database.db import async_session
 from bot.models.address_check import AddressCheck
 from bot.services.chain_analyzer import analyze_address, detect_chain
 from bot.services.risk_scorer import compute_risk_score
-from bot.services.claude_agent import analyze_address_with_ai
 from bot.services.gamification import get_or_create_user, award_check_xp, update_quest_progress
 
 logger = logging.getLogger(__name__)
@@ -22,6 +23,14 @@ RISK_EMOJI = {
     "high": "🟠",
     "critical": "🔴",
     "unknown": "⚪",
+}
+
+CHAIN_NAMES = {
+    "ethereum": "Ethereum",
+    "bsc": "BNB Chain",
+    "bitcoin": "Bitcoin",
+    "solana": "Solana",
+    "tron": "Tron",
 }
 
 
@@ -44,17 +53,15 @@ async def handle_raw_address(update: Update, context: ContextTypes.DEFAULT_TYPE)
     """Handle messages that look like crypto addresses."""
     text = update.message.text.strip()
 
-    # Quick check: does this look like an address?
     if detect_chain(text) is not None:
         await _do_check(update, text, chain=None)
 
 
 async def _do_check(update: Update, address: str, chain: str | None) -> None:
-    """Core check logic."""
+    """Core check logic — on-chain data + heuristic scoring, no API calls to Claude."""
     user = update.effective_user
 
-    # Send "thinking" message
-    thinking_msg = await update.message.reply_text("🔍 Анализирую адрес, секунду...")
+    thinking_msg = await update.message.reply_text("🔍 Анализирую адрес...")
 
     try:
         # 1. Fetch on-chain data
@@ -67,12 +74,8 @@ async def _do_check(update: Update, address: str, chain: str | None) -> None:
         # 2. Compute risk score
         score, level, reasons = compute_risk_score(info)
 
-        # 3. Get AI analysis
-        try:
-            ai_summary = await analyze_address_with_ai(info)
-        except Exception as e:
-            logger.warning("AI analysis failed: %s", e)
-            ai_summary = _build_fallback_summary(info, score, level, reasons)
+        # 3. Build report (no AI)
+        summary = _build_summary(info, score, level, reasons)
 
         # 4. Save to DB and process gamification
         async with async_session() as session:
@@ -83,7 +86,6 @@ async def _do_check(update: Update, address: str, chain: str | None) -> None:
                 first_name=user.first_name,
             )
 
-            # Save address check
             check = AddressCheck(
                 user_id=db_user.id,
                 address=address,
@@ -94,23 +96,17 @@ async def _do_check(update: Update, address: str, chain: str | None) -> None:
                 tx_count=info.tx_count,
                 first_seen=info.first_seen,
                 last_active=info.last_active,
-                ai_summary=ai_summary,
+                ai_summary=None,
                 labels=",".join(info.labels) if info.labels else None,
             )
             session.add(check)
             await session.commit()
 
-            # Award XP
             rewards = await award_check_xp(session, db_user, score)
-
-            # Update quests
             completed_quests = await update_quest_progress(session, db_user, info.chain, score)
 
-        # 5. Build response
-        response = ai_summary
-
-        # Add gamification footer
-        xp_line = f"\n\n✨ +{rewards['xp_earned']} XP"
+        # 5. Append gamification
+        xp_line = f"\n✨ +{rewards['xp_earned']} XP"
         if rewards["leveled_up"]:
             xp_line += f" | 🎉 Новый уровень: {rewards['new_level_name']}!"
 
@@ -120,43 +116,51 @@ async def _do_check(update: Update, address: str, chain: str | None) -> None:
         for quest in completed_quests:
             xp_line += f"\n📋 Квест выполнен: {quest['title']} (+{quest['xp']} XP)"
 
-        response += xp_line
+        summary += xp_line
 
-        await thinking_msg.edit_text(response, parse_mode="HTML")
+        await thinking_msg.edit_text(summary, parse_mode="HTML")
 
     except Exception as e:
         logger.exception("Check failed")
         await thinking_msg.edit_text(f"😔 Что-то пошло не так: {e}")
 
 
-def _build_fallback_summary(info, score: float, level: str, reasons: list[str]) -> str:
-    """Build a summary without AI when Claude is unavailable."""
+def _build_summary(info, score: float, level: str, reasons: list[str]) -> str:
+    """Build address report from on-chain data + heuristics."""
     emoji = RISK_EMOJI.get(level, "⚪")
-    age_str = info.first_seen.strftime("%Y-%m-%d") if info.first_seen else "неизвестно"
-    last_str = info.last_active.strftime("%Y-%m-%d") if info.last_active else "неизвестно"
+    chain_display = CHAIN_NAMES.get(info.chain, info.chain)
+    age_str = info.first_seen.strftime("%Y-%m-%d") if info.first_seen else "н/д"
+    last_str = info.last_active.strftime("%Y-%m-%d %H:%M UTC") if info.last_active else "н/д"
+
+    short_addr = f"{info.address[:10]}...{info.address[-8:]}" if len(info.address) > 20 else info.address
 
     text = f"""{emoji} <b>Проверка адреса</b>
 
-<b>Адрес:</b> <code>{info.address[:8]}...{info.address[-6:]}</code>
-<b>Сеть:</b> {info.chain}
+<b>Адрес:</b> <code>{short_addr}</code>
+<b>Сеть:</b> {chain_display}
 <b>Риск:</b> {score:.0f}/100 ({level})
 
 <b>Баланс:</b> {info.balance}
 <b>Транзакций:</b> {info.tx_count or 'н/д'}
 <b>Первая активность:</b> {age_str}
-<b>Последняя активность:</b> {last_str}
-"""
+<b>Последняя активность:</b> {last_str}"""
+
+    if info.is_contract:
+        text += "\n<b>Тип:</b> смарт-контракт"
+
+    if info.labels:
+        text += f"\n<b>Метки:</b> {', '.join(info.labels)}"
 
     if reasons:
-        text += "\n<b>Наблюдения:</b>\n"
-        text += "\n".join(f"• {r}" for r in reasons)
+        text += "\n\n<b>Наблюдения:</b>"
+        for r in reasons:
+            text += f"\n• {r}"
 
     return text
 
 
 def register_check_handlers(app) -> None:
     app.add_handler(CommandHandler("check", check_command))
-    # Handle raw addresses sent as text (low priority, after other handlers)
     app.add_handler(
         MessageHandler(filters.TEXT & ~filters.COMMAND, handle_raw_address),
         group=1,
