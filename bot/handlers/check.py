@@ -235,33 +235,11 @@ def _build_summary(info, score: float, level: str, reasons: list[str]) -> str:
     addr_url = EXPLORER_ADDRESS.get(info.chain, "").format(addr=info.address)
     addr_link = f'<a href="{addr_url}">{short_addr}</a>' if addr_url else f"<code>{short_addr}</code>"
 
-    # Wallet age
-    now = datetime.now(timezone.utc)
-    if info.first_seen:
-        age_days = (now - info.first_seen).days
-        if age_days < 1:
-            age_str = "менее 1д"
-        else:
-            age_str = f"{age_days}д"
-        first_seen_str = info.first_seen.strftime("%d.%m.%Y")
-    else:
-        age_str = "н/д"
-        first_seen_str = "н/д"
-
     # Last transaction
     if info.last_active:
         last_active_str = info.last_active.strftime("%d.%m.%Y %H:%M:%S")
-        # Activity status: active if last tx within 30 days
-        days_inactive = (now - info.last_active).days
-        if days_inactive <= 30:
-            status = "🟢 Активный"
-        elif days_inactive <= 180:
-            status = "🟡 Малоактивный"
-        else:
-            status = "🔴 Неактивный"
     else:
         last_active_str = "н/д"
-        status = "⚪ Неизвестно"
 
     # Last tx explorer link
     tx_link = ""
@@ -271,30 +249,13 @@ def _build_summary(info, score: float, level: str, reasons: list[str]) -> str:
             tx_link = f'\n🔗 <a href="{tx_url}">Посмотреть в эксплорере</a>'
 
     # Build message
-    text = f"📍 {addr_link}\n"
-    text += f"🌐 Сеть: {chain_display}\n"
+    text = f"🌐 Сеть: {chain_display}\n"
+    text += f"📍 {addr_link}\n"
     text += f"💰 Баланс: {info.balance}\n"
-    text += f"🗓 Возраст кошелька: {age_str}\n"
-    text += f"📅 С: {first_seen_str}\n"
     text += f"🔄 Последняя транзакция:\n"
     text += f"⏰ {last_active_str}"
     text += tx_link
-    text += f"\n📊 Статус: {status}\n"
-    text += f"\n⚠️ Риск: {emoji} {risk_label} ({score:.0f}/100)"
-
-    if info.is_contract:
-        text += "\n📦 Тип: смарт-контракт"
-
-    if info.labels:
-        text += f"\n🏷 Метки: {', '.join(info.labels)}"
-
-    if info.tx_count:
-        text += f"\n🔢 Транзакций: {info.tx_count}"
-
-    if reasons:
-        text += "\n\n🔍 <b>Наблюдения:</b>"
-        for r in reasons:
-            text += f"\n• {r}"
+    text += f"\n\n⚠️ Риск: {emoji} {risk_label} ({score:.0f}/100)"
 
     return text
 
