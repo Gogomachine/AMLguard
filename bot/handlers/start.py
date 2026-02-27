@@ -2,7 +2,7 @@
 /start and onboarding flow.
 """
 
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardRemove, WebAppInfo
 from telegram.ext import CommandHandler, ContextTypes
 
 from bot.config import settings
@@ -43,6 +43,12 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             username=user.username,
             first_name=user.first_name,
         )
+
+    # Remove any leftover ReplyKeyboard from previous bots
+    await update.message.reply_text(
+        "...",
+        reply_markup=ReplyKeyboardRemove(),
+    )
 
     keyboard = []
     if settings.webapp_url:
