@@ -24,17 +24,16 @@ DEFAULT_SOURCES: list[str] = [
     # Blockchain analytics (RSS)
     "https://www.chainalysis.com/blog/feed",
     "https://www.elliptic.co/blog/rss.xml",
-    # Blockchain analytics (HTML — no RSS available)
+    # Blockchain analytics (HTML — React SPA, may need JS rendering)
     "https://www.trmlabs.com/category/insights",
     "https://www.trmlabs.com/category/trm-investigations",
     "https://www.trmlabs.com/category/foundations",
-    # AML / Compliance organizations (HTML)
-    "https://www.acfcs.org/opinion-fraud-is-not-a-paper-crime-it-is-a-national-security-threat",
-    "https://www.acams.org/en/news#news",
-    # Regulators (HTML)
+    # AML / Compliance organizations (RSS)
+    "https://www.acamstoday.org/feed/",
+    # Regulators (HTML — server-rendered, scrapable)
     "https://www.fatf-gafi.org/en/the-fatf/news.html",
-    # Crypto media — policy & regulation (HTML, RSS auto-discovery)
-    "https://www.coindesk.com/policy",
+    # Crypto media — policy & regulation (RSS)
+    "https://www.coindesk.com/arc/outboundfeeds/rss/?category=policy",
     # Russian-language crypto media (RSS)
     "https://forklog.com/feed",
 ]
