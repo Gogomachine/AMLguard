@@ -19,10 +19,24 @@ from bot.services.publisher import publish_to_telegram_channel
 logger = logging.getLogger(__name__)
 
 # Default AML news sources — user can override via NEWS_SOURCES env var
+# RSS feeds preferred (more reliable); HTML pages as fallback
 DEFAULT_SOURCES: list[str] = [
-    # Add your sources here, e.g.:
-    # "https://www.coindesk.com/tag/aml/feed/",
-    # "https://cointelegraph.com/rss/tag/regulation",
+    # Blockchain analytics (RSS)
+    "https://www.chainalysis.com/blog/feed",
+    "https://www.elliptic.co/blog/rss.xml",
+    # Blockchain analytics (HTML — no RSS available)
+    "https://www.trmlabs.com/category/insights",
+    "https://www.trmlabs.com/category/trm-investigations",
+    "https://www.trmlabs.com/category/foundations",
+    # AML / Compliance organizations (HTML)
+    "https://www.acfcs.org/opinion-fraud-is-not-a-paper-crime-it-is-a-national-security-threat",
+    "https://www.acams.org/en/news#news",
+    # Regulators (HTML)
+    "https://www.fatf-gafi.org/en/the-fatf/news.html",
+    # Crypto media — policy & regulation (HTML, RSS auto-discovery)
+    "https://www.coindesk.com/policy",
+    # Russian-language crypto media (RSS)
+    "https://forklog.com/feed",
 ]
 
 

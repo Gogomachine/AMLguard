@@ -2,7 +2,9 @@
 AML news parser — scrapes RSS feeds and HTML pages from AML-themed websites.
 """
 
+import asyncio
 import logging
+import random
 from dataclasses import dataclass
 from datetime import datetime
 from email.utils import parsedate_to_datetime
@@ -13,16 +15,35 @@ from bs4 import BeautifulSoup
 
 logger = logging.getLogger(__name__)
 
-HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (compatible; TxPeek-AML-Bot/1.0; "
-        "+https://github.com/txpeek)"
+# Rotate User-Agent to reduce bot-detection blocks
+_USER_AGENTS = [
+    (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
     ),
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-}
+    (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_4) "
+        "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15"
+    ),
+    (
+        "Mozilla/5.0 (X11; Linux x86_64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+    ),
+]
 
-# Timeout for each HTTP request (seconds)
-REQUEST_TIMEOUT = 20
+REQUEST_TIMEOUT = 25
+MAX_RETRIES = 2
+
+
+def _headers() -> dict[str, str]:
+    return {
+        "User-Agent": random.choice(_USER_AGENTS),
+        "Accept": (
+            "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+        ),
+        "Accept-Language": "en-US,en;q=0.9,ru;q=0.8",
+        "Accept-Encoding": "gzip, deflate, br",
+    }
 
 
 @dataclass
@@ -37,7 +58,7 @@ class ParsedArticle:
 
 
 # ---------------------------------------------------------------------------
-# RSS parsing (via BeautifulSoup on XML)
+# RSS parsing (via BeautifulSoup + lxml-xml)
 # ---------------------------------------------------------------------------
 
 def _parse_rss_date(date_str: str | None) -> datetime | None:
@@ -47,7 +68,11 @@ def _parse_rss_date(date_str: str | None) -> datetime | None:
     try:
         return parsedate_to_datetime(date_str)
     except Exception:
-        return None
+        # Try ISO-8601 (Atom feeds)
+        try:
+            return datetime.fromisoformat(date_str.replace("Z", "+00:00"))
+        except Exception:
+            return None
 
 
 def _parse_rss(xml_text: str, source_domain: str) -> list[ParsedArticle]:
@@ -86,6 +111,7 @@ def _parse_rss(xml_text: str, source_domain: str) -> list[ParsedArticle]:
             item.find("description")
             or item.find("summary")
             or item.find("content")
+            or item.find("content:encoded")
         )
         snippet = ""
         if desc_tag:
@@ -102,7 +128,9 @@ def _parse_rss(xml_text: str, source_domain: str) -> list[ParsedArticle]:
             or item.find("updated")
             or item.find("dc:date")
         )
-        published_at = _parse_rss_date(pub_date.get_text(strip=True) if pub_date else None)
+        published_at = _parse_rss_date(
+            pub_date.get_text(strip=True) if pub_date else None
+        )
 
         articles.append(
             ParsedArticle(
@@ -137,9 +165,20 @@ def _parse_html(html_text: str, base_url: str, source_domain: str) -> list[Parse
     if not article_tags:
         article_tags = soup.find_all(["h2", "h3"], limit=30)
 
+    # Strategy 3: divs with common news-card class patterns
+    if not article_tags:
+        for cls in ("post", "card", "news-item", "blog-item", "entry"):
+            found = soup.find_all(
+                "div", class_=lambda c: c and cls in c, limit=20
+            )
+            if found:
+                article_tags = found
+                break
+
     for tag in article_tags:
-        link = tag.find("a", href=True) if tag.name == "article" else (
-            tag.find("a", href=True) or (tag.parent.find("a", href=True) if tag.parent else None)
+        link = tag.find("a", href=True) if tag.name in ("article", "div") else (
+            tag.find("a", href=True)
+            or (tag.parent.find("a", href=True) if tag.parent else None)
         )
         if not link or not link.get("href"):
             continue
@@ -158,11 +197,16 @@ def _parse_html(html_text: str, base_url: str, source_domain: str) -> list[Parse
 
         title = link.get_text(strip=True)
         if not title or len(title) < 10:
+            # Try to get title from a heading inside the container
+            heading = tag.find(["h2", "h3", "h4"])
+            if heading:
+                title = heading.get_text(strip=True)
+        if not title or len(title) < 10:
             continue
 
         # Try to find a snippet nearby
         snippet = ""
-        p_tag = tag.find("p") if tag.name == "article" else (
+        p_tag = tag.find("p") if tag.name in ("article", "div") else (
             tag.find_next_sibling("p")
         )
         if p_tag:
@@ -181,40 +225,101 @@ def _parse_html(html_text: str, base_url: str, source_domain: str) -> list[Parse
 
 
 # ---------------------------------------------------------------------------
+# RSS auto-discovery from HTML page
+# ---------------------------------------------------------------------------
+
+def _discover_rss_from_html(html_text: str, base_url: str) -> str | None:
+    """Look for <link rel='alternate' type='application/rss+xml'> in HTML."""
+    soup = BeautifulSoup(html_text, "html.parser")
+    for link in soup.find_all("link", rel="alternate"):
+        link_type = link.get("type", "")
+        if "rss" in link_type or "atom" in link_type or "xml" in link_type:
+            href = link.get("href", "")
+            if href.startswith("/"):
+                parsed = urlparse(base_url)
+                href = f"{parsed.scheme}://{parsed.netloc}{href}"
+            if href.startswith("http"):
+                return href
+    return None
+
+
+# ---------------------------------------------------------------------------
+# HTTP fetching with retry
+# ---------------------------------------------------------------------------
+
+async def _fetch_url(url: str) -> tuple[str, str] | None:
+    """
+    Fetch URL content with retries.
+    Returns (content, content_type) or None on failure.
+    """
+    for attempt in range(MAX_RETRIES + 1):
+        try:
+            async with httpx.AsyncClient(
+                headers=_headers(),
+                timeout=REQUEST_TIMEOUT,
+                follow_redirects=True,
+            ) as client:
+                resp = await client.get(url)
+                resp.raise_for_status()
+                return resp.text, resp.headers.get("content-type", "")
+        except httpx.HTTPStatusError as e:
+            # Don't retry on 403/404 — it's intentional blocking
+            if e.response.status_code in (403, 404, 451):
+                logger.warning("Blocked by %s (HTTP %d)", url, e.response.status_code)
+                return None
+            if attempt < MAX_RETRIES:
+                await asyncio.sleep(2 ** attempt)
+            else:
+                logger.warning("Failed to fetch %s after %d attempts: %s", url, MAX_RETRIES + 1, e)
+        except httpx.HTTPError as e:
+            if attempt < MAX_RETRIES:
+                await asyncio.sleep(2 ** attempt)
+            else:
+                logger.warning("Failed to fetch %s: %s", url, e)
+    return None
+
+
+# ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
 async def fetch_articles(url: str) -> list[ParsedArticle]:
     """
     Fetch and parse articles from a single URL.
-    Auto-detects RSS vs HTML content.
+    Auto-detects RSS vs HTML content. If HTML, tries RSS auto-discovery.
     """
     domain = urlparse(url).netloc
-    try:
-        async with httpx.AsyncClient(
-            headers=HEADERS, timeout=REQUEST_TIMEOUT, follow_redirects=True
-        ) as client:
-            resp = await client.get(url)
-            resp.raise_for_status()
-            content = resp.text
-    except httpx.HTTPError as e:
-        logger.warning("Failed to fetch %s: %s", url, e)
+    result = await _fetch_url(url)
+    if not result:
         return []
 
-    content_type = resp.headers.get("content-type", "")
+    content, content_type = result
 
     # Detect RSS/Atom
-    if (
+    is_rss = (
         "xml" in content_type
         or "rss" in content_type
         or "atom" in content_type
         or content.lstrip().startswith("<?xml")
         or "<rss" in content[:500]
         or "<feed" in content[:500]
-    ):
+    )
+
+    if is_rss:
         articles = _parse_rss(content, domain)
         logger.info("Parsed %d articles from RSS: %s", len(articles), domain)
         return articles
+
+    # HTML page — try to discover RSS feed first
+    rss_url = _discover_rss_from_html(content, url)
+    if rss_url:
+        logger.info("Discovered RSS feed: %s", rss_url)
+        rss_result = await _fetch_url(rss_url)
+        if rss_result:
+            articles = _parse_rss(rss_result[0], domain)
+            if articles:
+                logger.info("Parsed %d articles from discovered RSS: %s", len(articles), domain)
+                return articles
 
     # Fallback to HTML scraping
     articles = _parse_html(content, url, domain)
